@@ -9,10 +9,9 @@ rand = "0.10.0"
 bitvec = "1.0.1"
 rayon = "1.11.0"
 rand_xoshiro = "0.8.0"
-polars = { version = "0.53.0",  features = [ "decompress", "lazy" ] }
-polars-rows-iter = "0.13.1"
-bpaf = "0.9.23"
+bpaf = { version = "0.9.24", features = ["derive"] }
 anyhow = "1.0.102"
+flate2 = "1.1.9"
 
 [profile.dev.package.faer]
 opt-level = 3

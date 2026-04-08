@@ -1,5 +1,4 @@
-use std::cell::OnceCell;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::ffi::OsStr;
 use std::io::{BufRead, BufReader};
@@ -73,46 +72,27 @@ impl FromStr for Direction {
 
 #[allow(dead_code)]
 pub struct Graph {
-    nnodes: usize,
-    edges: Vec<(usize, usize)>,
-    direction: Direction,
-    _adj: OnceCell<Vec<BitVec>>,
-    _preds_of: OnceCell<Vec<Vec<usize>>>,
-    _indegs: OnceCell<Col<u32>>,
+    pub nnodes: usize,
+    pub edges: Vec<(usize, usize)>,
+    pub direction: Direction,
+    pub adj: Vec<BitVec>,
+    pub preds_of: Vec<Vec<usize>>,
+    pub indegs: Col<u32>,
 }
 
 impl Graph {
-    fn new(nnodes: usize, edges: Vec<(usize, usize)>, direction: Direction) -> Self {
+    pub fn new(nnodes: usize, edges: Vec<(usize, usize)>, direction: Direction) -> Self {
+        let adj = adj_binmat(nnodes, &edges);
+        let preds_of = preds_of(nnodes, &edges);
+        let indegs = indegs(nnodes, &edges);
         Self {
             nnodes,
             edges,
             direction,
-            _adj: OnceCell::new(),
-            _preds_of: OnceCell::new(),
-            _indegs: OnceCell::new(),
+            adj,
+            preds_of,
+            indegs,
         }
-    }
-
-    pub fn nnodes(&self) -> usize {
-        self.nnodes
-    }
-
-    pub fn edges(&self) -> &[(usize, usize)] {
-        &self.edges
-    }
-
-    pub fn adj(&self) -> &Vec<BitVec> {
-        self._adj
-            .get_or_init(|| adj_binmat(self.nnodes, &self.edges))
-    }
-
-    pub fn preds_of(&self) -> &Vec<Vec<usize>> {
-        self._preds_of
-            .get_or_init(|| preds_of(self.nnodes, &self.edges))
-    }
-    pub fn indegs(&self) -> &Col<u32> {
-        self._indegs
-            .get_or_init(|| indegs(self.nnodes, &self.edges))
     }
 }
 
@@ -147,17 +127,23 @@ pub fn read_edge_list<P: AsRef<Path>>(
 
     let mut min = u32::MAX;
     let mut max = u32::MIN;
-    for &(i, j) in &pairs {
-        if min > i.min(j) {
-            min = i.min(j);
+
+    let mut table = BTreeMap::<u32, BTreeSet<u32>>::new();
+    for (from, to) in pairs {
+        min = from.min(to).min(min);
+        max = from.max(to).max(max);
+        // skip self-loop edges
+        if from == to {
+            continue;
         }
-        if max < i.max(j) {
-            max = i.max(j);
-        }
+        table.entry(from).or_default().insert(to);
     }
-    let iter = pairs
-        .iter()
-        .map(|&(i, j)| ((i - min) as usize, (j - min) as usize));
+
+    let iter = table.into_iter().flat_map(|(from, tos)| {
+        tos.into_iter()
+            .map(|to| ((from - min) as usize, (to - min) as usize))
+            .collect::<Vec<_>>()
+    });
 
     let edges = match direction {
         Direction::Directed => iter.collect(),

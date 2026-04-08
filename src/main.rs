@@ -14,10 +14,13 @@ struct Options {
     /// A character to separate columns of an edge list. (default: space)
     #[bpaf(long("sep"), fallback(' '))]
     separator: char,
-    /// Seed number of PRNG.
-    #[bpaf(short('r'), long("rng-seed"))]
-    rng_seed: u64,
-    /// Upper bound of uniform distr. of activation probability (included).
+    /// Seed value of PRNG for initial acivated nodes.
+    #[bpaf(long("ns"))]
+    rng_seed_in: u64,
+    /// Seed value of PRNG for distr. of activation prob..
+    #[bpaf(long("ps"))]
+    rng_seed_ap: u64,
+    /// Upper bound of uniform distr. of activation prob. (included).
     #[bpaf(short('u'), long("upper"))]
     high_prob: f64,
     /// Number of seed nodes.
@@ -26,6 +29,15 @@ struct Options {
     /// Default steps for finite methods
     #[bpaf(long("dsteps"))]
     default_steps: usize,
+    /// Number of times to repeat methods except Monte-Carlo
+    #[bpaf(long("rpt"))]
+    nrepts: usize,
+    /// File path to output computation time.
+    #[bpaf(long("tot"))]
+    time_path: PathBuf,
+    /// File path to output errors.
+    #[bpaf(long("toe"))]
+    error_path: PathBuf,
     #[bpaf(external(exec_cmd), many)]
     cmds: Vec<ExecCmd>,
 }
@@ -39,83 +51,30 @@ fn main() -> anyhow::Result<()> {
         path,
         direction,
         separator,
-        rng_seed,
+        rng_seed_in,
+        rng_seed_ap,
         high_prob,
         nseeds,
         default_steps,
+        nrepts,
+        time_path,
+        error_path,
         cmds,
     } = parser.run();
     let graph = read_edge_list(path, direction, separator)?;
 
-    let mut body = ExecBody::new(graph, nseeds, high_prob, rng_seed, default_steps);
-    for cmd in cmds {
-        body.execute(cmd);
-    }
+    let body = ExecBody::new(
+        graph,
+        nseeds,
+        high_prob,
+        rng_seed_in,
+        rng_seed_ap,
+        default_steps,
+        nrepts,
+    );
+    let result = body.execute_all(cmds);
+    // result.compare();
+    result.write(time_path, error_path)?;
 
-    body.compare();
-
-    // let mut rng = Xoshiro256PlusPlus::seed_from_u64(rng_seed);
-    // let prb = generate_prob_mat(nnodes, &edges, high_prob, &mut rng);
-    // let seeds = generate_seeds(nnodes, nseeds, &mut rng);
-    // let preds_of = preds_of(nnodes, &edges);
-
-    // let niter = 5000;
-    // let adj = adj_binmat(nnodes, &edges);
-    // let (mcl_distr, mcl_t, mcl_dur) = monte_carlo_ic_par(nnodes, &adj, &prb, &seeds, &mut rng, niter);
-    // println!("Execution time (MCL): {} ms", mcl_dur.as_millis());
-
-    // let t = mcl_t.ceil() as usize;
-    // println!("{t}");
-
-    // let (dmp_distr, dmp_dur) = finite_dmp(nnodes, &edges, &preds_of, &prb, &seeds, t);
-    // println!("Execution time (DMP): {} ms", dmp_dur.as_millis());
-
-    // let (tyr_distr, tyr_dur) =
-    //     finite_taylor_scaled_point(nnodes, &preds_of, prb.transpose(), &seeds, t, 1.0);
-    // println!("Execution time (TYR): {} ms", tyr_dur.as_millis());
-
-    // let (tyr0_distr, tyr0_dur) =
-    //     finite_taylor_zero_point(nnodes, &preds_of, prb.transpose(), &seeds, t);
-    // println!("Execution time (TYR0): {} ms", tyr0_dur.as_millis());
-
-    // let (sss_distr, sss_dur) = finite_sss_noself(nnodes, &preds_of, &prb, &seeds, t);
-    // println!("Execution time (SSS): {} ms", sss_dur.as_millis());
-
-    // println!(
-    //     "Error (MCL vs DMP ): {:?}",
-    //     error_of_distrs(&MCL_distr, &dmp_distr, nnodes)
-    // );
-    // println!(
-    //     "Error (MCL vs TYR ): {:?}",
-    //     error_of_distrs(&mcl_distr, &tyr_distr, nnodes)
-    // );
-    // println!(
-    //     "Error (MCL vs TYR0): {:?}",
-    //     error_of_distrs(&mcl_distr, &tyr0_distr, nnodes)
-    // );
-    // println!(
-    //     "Error (MCL vs SSS): {:?}",
-    //     error_of_distrs(&mcl_distr, &sss_distr, nnodes)
-    // );
-    // println!(
-    //     "Error (SSS vs TYR ): {:?}",
-    //     error_of_distrs(&sss_distr, &tyr_distr, nnodes)
-    // );
-    // println!(
-    //     "Error (SSS vs TYR0): {:?}",
-    //     error_of_distrs(&sss_distr, &tyr0_distr, nnodes)
-    // );
-    // println!(
-    //     "Error (DMP vs TYR ): {:?}",
-    //     error_of_distrs(&dmp_distr, &tyr_distr, nnodes)
-    // );
-    // println!(
-    //     "Error (DMP vs TYR0): {:?}",
-    //     error_of_distrs(&dmp_distr, &tyr0_distr, nnodes)
-    // );
-    // println!(
-    //     "Error (TYR vs TYR0): {:?}",
-    //     error_of_distrs(&tyr_distr, &tyr0_distr, nnodes)
-    // );
     Ok(())
 }

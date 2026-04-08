@@ -5,7 +5,7 @@ use bitvec::{bitvec, vec::BitVec};
 use faer::{Col, Mat};
 use rand::{Rng, RngExt, SeedableRng};
 use rand_xoshiro::Xoshiro256PlusPlus;
-use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+use rayon::prelude::*;
 
 use crate::InfluenceData;
 
@@ -32,7 +32,8 @@ fn execute_ic_once(
                 if !adj[i][j] || ca[j] || aa[j] {
                     continue;
                 }
-                if rng.random::<f64>() < prob[(i, j)] {
+                let p = rng.random::<f64>();
+                if prob[(i, j)] > p {
                     next_ca.set(j, true);
                 }
             }
@@ -51,48 +52,61 @@ pub struct ExtraData {
 pub fn monte_carlo_ic_par(
     nnodes: usize,
     adj: &[BitVec],
-    prb: &Mat<f64>,
+    prob: &Mat<f64>,
     seeds: &BitVec,
     rng: &mut impl Rng,
     iter_size: usize,
 ) -> (InfluenceData, ExtraData) {
+    let ncores = num_cpus::get();
     let mut master_rng = Xoshiro256PlusPlus::from_rng(rng);
-    let mut rngs = Vec::with_capacity(iter_size);
+    let mut rngs = Vec::with_capacity(ncores);
 
-    rngs.push(master_rng.clone());
-    for _ in 1..iter_size {
-        master_rng.jump();
-        rngs.push(master_rng.clone());
+    let k = iter_size / ncores;
+    let mut m = iter_size % ncores;
+
+    for i in 0..ncores {
+        let r = if m > 0 {
+            m -= 1;
+            1
+        } else {
+            0
+        };
+        rngs.push((master_rng.clone(), k + r));
+        if i <= ncores - 1 {
+            master_rng.jump();
+        }
     }
 
     let results = rngs
         .par_iter_mut()
-        .map(|rng| {
-            let instant = Instant::now();
-            let (aa, t) = execute_ic_once(nnodes, adj, prb, seeds, rng);
-            (aa, t, instant.elapsed())
+        .map(|(rng, k)| {
+            (0..*k)
+                .map(|_| {
+                    let instant = Instant::now();
+                    let (aa, t) = execute_ic_once(nnodes, adj, prob, seeds, rng);
+                    (aa, t, instant.elapsed())
+                })
+                .collect::<Vec<_>>()
         })
+        .flatten()
         .collect::<Vec<_>>();
 
     let n = seeds.len();
     let mut v = Col::<f64>::zeros(n);
-    let mut mean_t = 0f64;
+    let mut sum_t = 0;
     let mut duration = Duration::ZERO;
     for (aa, t, dur) in results {
         for i in aa.iter_ones() {
             v[i] += 1f64;
         }
-        mean_t += t as f64;
+        sum_t += t;
         duration += dur;
     }
     let m = iter_size as f64;
     v /= m;
-    mean_t /= m;
+    let mean_steps = (sum_t as f64) / m;
 
-    (
-        InfluenceData::new(v, duration),
-        ExtraData { mean_steps: mean_t },
-    )
+    (InfluenceData::new(v, duration), ExtraData { mean_steps })
 }
 
 #[cfg(test)]
@@ -100,12 +114,14 @@ mod tests {
     use bitvec::{bits, prelude::Lsb0, vec::BitVec};
     use faer::Mat;
     use rand::{SeedableRng, rngs::SmallRng};
+    use rand_xoshiro::Xoroshiro128PlusPlus;
+    use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
     use super::execute_ic_once;
     use crate::graph::adj_binmat;
 
     #[test]
-    fn test_simulate_ic_model() {
+    fn test_ic_model() {
         let edges = vec![(0, 1), (1, 2), (2, 3)];
         let nnodes = 4;
         let adj = adj_binmat(nnodes, &edges);
@@ -124,5 +140,45 @@ mod tests {
         assert!(res[1]);
         assert!(res[2]);
         assert!(res[3]);
+    }
+
+    #[test]
+    fn test_stochastic_ic_model() {
+        let edges = vec![(0, 1), (0, 2), (1, 2), (2, 3)];
+        let nnodes = 4;
+        let adj = adj_binmat(nnodes, &edges);
+        let prb = {
+            let mut prb = Mat::<f64>::zeros(nnodes, nnodes);
+            for &e in &edges {
+                prb[e] = 0.5;
+            }
+            prb
+        };
+        let seeds = BitVec::from_bitslice(&bits![1, 0, 0, 0]);
+
+        let iter = 100;
+        let mut rng = Xoroshiro128PlusPlus::seed_from_u64(0);
+        let mut rngs = (0..iter)
+            .map(|_| {
+                rng.jump();
+                rng.clone()
+            })
+            .collect::<Vec<_>>();
+
+        let rss = rngs
+            .par_iter_mut()
+            .map(|rng| {
+                let (res, _) = execute_ic_once(nnodes, &adj, &prb, &seeds, rng);
+                res
+            })
+            .collect::<Vec<_>>();
+
+        let mut total = vec![0usize; nnodes];
+        rss.into_iter().for_each(|res| {
+            for i in res.iter_ones() {
+                total[i] += 1usize;
+            }
+        });
+        println!("{:?}", total);
     }
 }

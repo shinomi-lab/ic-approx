@@ -12,31 +12,33 @@ method_names = {
     "TYL0": "2nd Maclaurin",
 }
 
-column = alt.Column(
+row = alt.Row(
     "p",
     header=alt.Header(
         labels=False,
         title="Difference of propagation probability distributions",
+        titleOrient="right",
     ),
 )
-row = alt.Row(
+column = alt.Column(
     "n",
     header=alt.Header(
         labels=False,
         title="Difference of initial active nodes",
-        titleOrient="right",
     ),
 )
 
 
 def plot_result_error(location: str, cat: str) -> alt.FacetChart:
-    dfs = []
-    p = Path(location)
+    prefix = "_error"
 
-    for ns in range(1, 1 + 3):
-        for ps in range(1, 1 + 3):
-            ddf = pl.read_csv(p.joinpath(f"{cat}-{ns}-{ps}_error.csv"))
-            dfs.append(ddf.with_columns([pl.lit(ns).alias("n"), pl.lit(ps).alias("p")]))
+    dfs = []
+    for fp in Path(location).glob(f"{cat}-*{prefix}.csv"):
+        parts = fp.stem.replace(prefix, "").split("-")
+        n = int(parts[1])
+        p = int(parts[2])
+        ddf = pl.read_csv(fp)
+        dfs.append(ddf.with_columns([pl.lit(n).alias("n"), pl.lit(p).alias("p")]))
 
     df: pl.DataFrame = (
         pl.concat(dfs)
@@ -60,14 +62,15 @@ def plot_result_error(location: str, cat: str) -> alt.FacetChart:
 
 
 def plot_computation_time(location: str, cat: str) -> alt.FacetChart:
+    prefix = "_time"
+
     dfs = []
-    p = Path(location)
-
-    for ns in range(1, 1 + 3):
-        for ps in range(1, 1 + 3):
-            ddf = pl.read_csv(p.joinpath(f"{cat}-{ns}-{ps}_time.csv"))
-            dfs.append(ddf.with_columns([pl.lit(ns).alias("n"), pl.lit(ps).alias("p")]))
-
+    for fp in Path(location).glob(f"{cat}-*{prefix}.csv"):
+        parts = fp.stem.replace(prefix, "").split("-")
+        n = int(parts[1])
+        p = int(parts[2])
+        ddf = pl.read_csv(fp)
+        dfs.append(ddf.with_columns([pl.lit(n).alias("n"), pl.lit(p).alias("p")]))
     df: pl.DataFrame = pl.concat(dfs).rename({"time(us)": "time"})
 
     chart = (
@@ -88,8 +91,8 @@ def plot_computation_time(location: str, cat: str) -> alt.FacetChart:
 
 
 def main():
-    format = "png"
-    # format = "pdf"
+    # format = "png"
+    format = "pdf"
     for cat in ["twitter", "facebook"]:
         plot_computation_time("../test/sample-result", cat).save(f"{cat}_time.{format}")
         plot_result_error("../test/sample-result", cat).save(f"{cat}_error.{format}")

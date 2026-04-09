@@ -8,11 +8,11 @@ function exec {
     ubp=$7
     name=$8
     echo $gp
-    for ns in {1..3}; do
-        for ps in {1..3}; do
+    for ns in $(seq 1 $max_ns); do
+        for ps in $(seq 1 $max_ps); do
             echo $name $ns $ps
             ./target/release/ic-approx \
-                -g $gp -d $dir -u $ubp -n $seed_num --dsteps 10 --rpt 10\
+                -g $gp -d $dir -u $ubp -n $seed_num --dsteps 10 --rpt 8\
                 --ns $ns --ps $ps\
                 --tot ./test/sample-result/${name}-${ns}-${ps}_time.csv\
                 --toe ./test/sample-result/${name}-${ns}-${ps}_error.csv\
@@ -21,5 +21,5 @@ function exec {
     done
 }
 
-exec ./target/congress_network/congress.edgelist directed 3 3 10000 10 0.125 twitter
-exec ./target/facebook_combined.txt.gz undirected 3 3 2000 10 0.125 facebook
+exec ./target/congress_network/congress.edgelist directed 5 3 10000 10 0.125 twitter
+exec ./target/facebook_combined.txt.gz undirected 5 3 10000 10 0.125 facebook
